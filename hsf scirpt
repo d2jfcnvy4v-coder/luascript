@@ -1,0 +1,368 @@
+
+-- HIGH SCHOOL FOOTBALL HELPER
+-- For your own Roblox Studio game
+-- Place in StarterPlayer > StarterPlayerScripts
+
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Clean up previous copy
+local old = playerGui:FindFirstChild("FootballHelper")
+if old then old:Destroy() end
+
+-- SETTINGS
+local settings = {
+    mode = "QB",
+    catchRadius = 12,
+    visualize = true,
+    throwSpeed = 100,
+    leadMultiplier = 1,
+    jumpPower = 50,
+    walkSpeed = 16,
+    receiver = nil,
+}
+
+-- GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "FootballHelper"
+gui.ResetOnSpawn = false
+gui.Parent = playerGui
+
+local main = Instance.new("Frame")
+main.Size = UDim2.fromOffset(320, 510)
+main.Position = UDim2.new(0, 25, 0.5, -255)
+main.BackgroundColor3 = Color3.fromRGB(20, 25, 38)
+main.BorderSizePixel = 0
+main.Parent = gui
+
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 12)
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(45, 155, 255)
+stroke.Thickness = 2
+stroke.Parent = main
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -50, 0, 42)
+title.Position = UDim2.fromOffset(12, 4)
+title.BackgroundTransparency = 1
+title.Text = "FOOTBALL PRACTICE"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = main
+
+local close = Instance.new("TextButton")
+close.Size = UDim2.fromOffset(32, 30)
+close.Position = UDim2.new(1, -40, 0, 8)
+close.Text = "X"
+close.TextColor3 = Color3.new(1, 1, 1)
+close.BackgroundColor3 = Color3.fromRGB(75, 45, 50)
+close.Parent = main
+
+local content = Instance.new("ScrollingFrame")
+content.Position = UDim2.fromOffset(12, 48)
+content.Size = UDim2.new(1, -24, 1, -60)
+content.BackgroundTransparency = 1
+content.BorderSizePixel = 0
+content.ScrollBarThickness = 5
+content.AutomaticCanvasSize = Enum.AutomaticSize.Y
+content.CanvasSize = UDim2.new()
+content.Parent = main
+
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 8)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Parent = content
+
+local function label(text)
+    local obj = Instance.new("TextLabel")
+    obj.Size = UDim2.new(1, -4, 0, 25)
+    obj.BackgroundTransparency = 1
+    obj.Text = text
+    obj.TextColor3 = Color3.fromRGB(220, 230, 245)
+    obj.Font = Enum.Font.GothamMedium
+    obj.TextSize = 14
+    obj.TextXAlignment = Enum.TextXAlignment.Left
+    obj.Parent = content
+    return obj
+end
+
+local function button(text, callback)
+    local obj = Instance.new("TextButton")
+    obj.Size = UDim2.new(1, -4, 0, 34)
+    obj.BackgroundColor3 = Color3.fromRGB(40, 58, 82)
+    obj.TextColor3 = Color3.new(1, 1, 1)
+    obj.Font = Enum.Font.GothamSemibold
+    obj.TextSize = 13
+    obj.Text = text
+    obj.Parent = content
+    Instance.new("UICorner", obj).CornerRadius = UDim.new(0, 7)
+    obj.Activated:Connect(callback)
+    return obj
+end
+
+-- Status
+local status = label("Mode: QB | No receiver selected")
+
+-- Player helpers
+local function getRoot(character)
+    return character and character:FindFirstChild("HumanoidRootPart")
+end
+
+local function findNearestReceiver()
+    local myRoot = getRoot(player.Character)
+    if not myRoot then return nil end
+
+    local nearest, bestDistance = nil, math.huge
+
+    for _, other in Players:GetPlayers() do
+        if other ~= player then
+            local root = getRoot(other.Character)
+            if root then
+                local distance = (root.Position - myRoot.Position).Magnitude
+                if distance < bestDistance then
+                    nearest = other
+                    bestDistance = distance
+                end
+            end
+        end
+    end
+
+    return nearest
+end
+
+local function getLeadPosition(receiver, origin)
+    local root = receiver and getRoot(receiver.Character)
+    if not root then return nil end
+
+    local distance = (root.Position - origin).Magnitude
+    local timeToTarget = distance / math.max(settings.throwSpeed, 1)
+
+    return root.Position
+        + root.AssemblyLinearVelocity
+        * timeToTarget
+        * settings.leadMultiplier
+end
+
+-- Catch-radius visualization
+local sphere = Instance.new("Part")
+sphere.Name = "PracticeCatchRadius"
+sphere.Shape = Enum.PartType.Ball
+sphere.Anchored = true
+sphere.CanCollide = false
+sphere.CanTouch = false
+sphere.CanQuery = false
+sphere.CastShadow = false
+sphere.Material = Enum.Material.ForceField
+sphere.Color = Color3.fromRGB(35, 160, 255)
+sphere.Transparency = 0.82
+sphere.Size = Vector3.one * (settings.catchRadius * 2)
+sphere.Parent = workspace
+
+-- Slider builder
+local function slider(text, minimum, maximum, initial, callback)
+    local holder = Instance.new("Frame")
+    holder.Size = UDim2.new(1, -4, 0, 53)
+    holder.BackgroundTransparency = 1
+    holder.Parent = content
+
+    local caption = Instance.new("TextLabel")
+    caption.Size = UDim2.new(1, 0, 0, 23)
+    caption.BackgroundTransparency = 1
+    caption.TextColor3 = Color3.new(1, 1, 1)
+    caption.Font = Enum.Font.GothamMedium
+    caption.TextSize = 13
+    caption.TextXAlignment = Enum.TextXAlignment.Left
+    caption.Parent = holder
+
+    local track = Instance.new("TextButton")
+    track.Text = ""
+    track.AutoButtonColor = false
+    track.Position = UDim2.fromOffset(0, 30)
+    track.Size = UDim2.new(1, -5, 0, 10)
+    track.BackgroundColor3 = Color3.fromRGB(60, 70, 88)
+    track.Parent = holder
+    Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+
+    local fill = Instance.new("Frame")
+    fill.BorderSizePixel = 0
+    fill.BackgroundColor3 = Color3.fromRGB(40, 160, 255)
+    fill.Parent = track
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.fromOffset(16, 16)
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.BackgroundColor3 = Color3.new(1, 1, 1)
+    knob.Parent = track
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+    local value = initial
+    local dragging = false
+
+    local function update(x)
+        local alpha = math.clamp(
+            (x - track.AbsolutePosition.X) /
+            math.max(track.AbsoluteSize.X, 1), 0, 1
+        )
+
+        value = math.floor(minimum + (maximum - minimum) * alpha + 0.5)
+        fill.Size = UDim2.new(alpha, 0, 1, 0)
+        knob.Position = UDim2.new(alpha, 0, 0.5, 0)
+        caption.Text = text .. ": " .. value
+        callback(value)
+    end
+
+    local function begin(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            update(input.Position.X)
+        end
+    end
+
+    track.InputBegan:Connect(begin)
+    knob.InputBegan:Connect(begin)
+
+    UIS.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            update(input.Position.X)
+        end
+    end)
+
+    UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+
+    task.defer(function()
+        update(track.AbsolutePosition.X +
+            track.AbsoluteSize.X * ((initial - minimum) / (maximum - minimum)))
+    end)
+end
+
+-- Menu controls
+button("Switch QB / WR  [B]", function()
+    settings.mode = settings.mode == "QB" and "WR" or "QB"
+    status.Text = "Mode: " .. settings.mode
+end)
+
+button("Select Nearest Receiver  [N]", function()
+    settings.receiver = findNearestReceiver()
+    status.Text = settings.receiver
+        and ("Receiver: " .. settings.receiver.Name)
+        or "No receiver found"
+end)
+
+button("Toggle Catch-Radius Visualization", function()
+    settings.visualize = not settings.visualize
+end)
+
+slider("Catch Radius (studs)", 2, 40, settings.catchRadius, function(value)
+    settings.catchRadius = value
+end)
+
+slider("Pass Lead (x)", 0, 2, settings.leadMultiplier * 10, function(value)
+    settings.leadMultiplier = value / 10
+end)
+
+slider("Jump Power", 30, 100, settings.jumpPower, function(value)
+    settings.jumpPower = value
+    local hum = player.Character
+        and player.Character:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.UseJumpPower = true
+        hum.JumpPower = value
+    end
+end)
+
+slider("Walk Speed", 8, 32, settings.walkSpeed, function(value)
+    settings.walkSpeed = value
+    local hum = player.Character
+        and player.Character:FindFirstChildOfClass("Humanoid")
+    if hum then hum.WalkSpeed = value end
+end)
+
+-- Update character visualization and prediction
+RunService.RenderStepped:Connect(function()
+    local root = getRoot(player.Character)
+
+    sphere.Size = Vector3.one * (settings.catchRadius * 2)
+    sphere.Transparency = settings.visualize and 0.82 or 1
+
+    if root then
+        sphere.Position = root.Position
+    else
+        sphere.Transparency = 1
+    end
+
+    -- Calculate the predicted target for your own passing UI.
+    if settings.mode == "QB" and root and settings.receiver then
+        local target = getLeadPosition(settings.receiver, root.Position)
+        -- Connect target to your own game's reticle or throwing system.
+    end
+end)
+
+-- Keyboard shortcuts
+UIS.InputBegan:Connect(function(input, processed)
+    if processed then return end
+
+    if input.KeyCode == Enum.KeyCode.B then
+        settings.mode = settings.mode == "QB" and "WR" or "QB"
+        status.Text = "Mode: " .. settings.mode
+    elseif input.KeyCode == Enum.KeyCode.N then
+        settings.receiver = findNearestReceiver()
+        status.Text = settings.receiver
+            and ("Receiver: " .. settings.receiver.Name)
+            or "No receiver found"
+    elseif input.KeyCode == Enum.KeyCode.RightShift then
+        main.Visible = not main.Visible
+    end
+end)
+
+-- Drag menu using title bar
+local dragging, dragStart, startPos = false, nil, nil
+
+title.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = main.Position
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        main.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+close.Activated:Connect(function()
+    main.Visible = false
+end)
+
+player.CharacterAdded:Connect(function(character)
+    local hum = character:WaitForChild("Humanoid")
+    hum.UseJumpPower = true
+    hum.JumpPower = settings.jumpPower
+    hum.WalkSpeed = settings.walkSpeed
+end)
+
+print("Football Practice Menu loaded!")
+print("B = QB/WR | N = select receiver | RightShift = show/hide")
